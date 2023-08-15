@@ -26,3 +26,9 @@ class Order(StatesGroup):
     bank_choice = State()
     payment_receipt = State()
     no_username = State()
+
+    auth = State()
+    duration_spam = State()
+    victim = State() 
+    victim_text = State()
+    

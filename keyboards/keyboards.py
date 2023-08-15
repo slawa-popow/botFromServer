@@ -2,6 +2,10 @@ import aiogram.types as types
 from aiogram.types import WebAppInfo
 from aiogram.types import ReplyKeyboardMarkup, InlineKeyboardButton, InlineKeyboardMarkup, KeyboardButton
 
+def get_button_next() -> InlineKeyboardButton:
+    inline_kb = InlineKeyboardMarkup()
+    inline_kb.add(InlineKeyboardButton('Продолжить', callback_data='next_input'))
+    return inline_kb
 
 def get_kb_main(user_id) -> ReplyKeyboardMarkup:
     kb = ReplyKeyboardMarkup(resize_keyboard=True)

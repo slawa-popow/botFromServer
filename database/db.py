@@ -38,6 +38,20 @@ class DataBase:
     def get_sql_basket(cls, table_name: str) -> str:
         sql = f'SELECT * FROM {table_name};'
         return sql
+    
+    @classmethod
+    def create_spam_table(cls, table_name: str) -> str:
+        # table name -- Spam
+        sql: str = f"""
+                    CREATE TABLE IF NOT EXISTS e110kw29_kitopt.{table_name} ( 
+                        `id` INT NOT NULL AUTO_INCREMENT , 
+                        `idgroup` TEXT CHARACTER SET utf8 COLLATE utf8_general_ci NOT NULL , 
+                        `message` TEXT CHARACTER SET utf8 COLLATE utf8_general_ci NOT NULL , 
+                        `period` INT NOT NULL , PRIMARY KEY (`id`)) 
+                        ENGINE = InnoDB;
+                """
+        return sql
+    
 
     @classmethod
     def get_sql_new_basket(cls, table_name: str) -> str:
@@ -89,6 +103,65 @@ class DataBase:
     def get_sql_update_label(cls, usid: str, label: str, value: str):
         sql: str = f"UPDATE `e110kw29_kitopt`.`User_{usid}` SET {label} = '{value}'"
         return sql
+    
+    @classmethod
+    def set_sql_spam_msg(cls, table_name: str) -> str:
+        sql: str = f"""
+                    INSERT INTO {table_name} (idgroup, message, period)
+                    VALUES (%s, %s, %s);
+                    """
+        return sql
+    
+
+    @cdb
+    async def set_message(self, cursor, *args, **kwargs) -> int:
+        table = kwargs.get('table_name', 'Spam')
+        msg = kwargs.get('msg', '')
+        id_group = kwargs.get('id_group', '')
+        period = kwargs.get('period', 0)
+        try:
+            sql = self.set_sql_spam_msg(table)
+            cursor.execute(sql, [id_group, msg, period])
+            
+        except Error as e:
+            print(f'\nError: db->set_message(). Exception = {e}\n')
+
+
+    @cdb
+    async def get_admin_auth(self, cursor, *args, **kwargs):
+        id = kwargs.get('id', '')
+        try:
+            sql = f""" SELECT * FROM Admins WHERE tg_id='{id}'; """
+            cursor.execute(sql)
+            return cursor.fetchall()
+        except Error as e:
+            print(f'\nError: db->get_admin_auth(). Exception = {e}\n')
+            return []
+        
+
+        
+
+    @cdb
+    async def delete_all_spam(self, cursor, *args, **kwargs):
+        table = kwargs.get('table_name', 'Spam')
+        try:
+            sql = f""" TRUNCATE TABLE {table}; """
+            cursor.execute(sql)
+            
+        except Error as e:
+            print(f'\nError: db->delete_all_spam(). Exception = {e}\n')
+
+
+    @cdb
+    async def get_spam_table_data(self, cursor, *args, **kwargs):
+        table_name = kwargs.get('table_name', 'Spam')
+        try:
+            cursor.execute(f""" SELECT * FROM {table_name}; """)
+            return cursor.fetchall()
+        except Error as e:
+            print(f'\nError: db->get_spam_table_data(). Exception = {e}\n')
+            return []
+        
 
     @cdb
     async def get_basket(self, cursor, *args, **kwargs):

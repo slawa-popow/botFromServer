@@ -1,6 +1,6 @@
 import pytz
 from datetime import datetime
-
+import hashlib
 from config import Config
 
 NOT_ALLOWED_CONTENT_TYPES_RECEIPT = [
@@ -16,3 +16,8 @@ def is_today_delivery():
     if now_datetime < cutoff_time:
         return True
     return False
+
+def encode_password(pswd: str) -> str:
+    en_b = str.encode(pswd)
+    hash = hashlib.sha256(en_b).hexdigest()
+    return hash 

@@ -10,16 +10,18 @@ from database.basket import Basket
 from states.fsm_states import Order
 from keyboards.keyboards import *
 from utils import *
-
+from middlewares.AuthFilter import AuthFilter
 from datetime import datetime
+from spamer.Spamer import Spamer
 
+STOP_INPUT = 'noid'
 
 bot = Bot(token=Config.TOKEN, parse_mode='HTML')
 dp = Dispatcher(bot, storage=MemoryStorage())
-
 db = DataBase()
+dp.setup_middleware(AuthFilter(db))
 basket = Basket(db)
-
+spamer = Spamer(db, bot)
 
 def get_items_basket(result) -> str:
     llist = []
@@ -33,6 +35,7 @@ def get_items_basket(result) -> str:
 # Стартовая функция
 @dp.message_handler(commands=['start'], state='*')
 async def cmd_start(message: types.Message, state: FSMContext):
+    
     await Order.start.set()
     user_id = str(message.from_user.id)
     user_name = message.from_user.username
@@ -48,7 +51,7 @@ async def cmd_start(message: types.Message, state: FSMContext):
         """ 👏Поздравляю! Теперь тебе не придётся ждать ответа от менеджера👏.\n Бесплатная доставка по Минску от 10 единиц при первом заказе 😍.\n Сделай заказ в несколько кликов, выбери адрес и время доставки 🚁.\nЖми 'поиск/заказать'\n\n\n<b>Видео инструкция находится в стадии записи.....</b>""",
         reply_markup=get_kb_main(user_id)
     )
-    await bot.send_video(message.chat.id, open('/home/media/bandicam.mp4', 'rb'))
+    # await bot.send_video(message.chat.id, open('/home/media/bandicam.mp4', 'rb'))
     return await basket.run_sesion_timer({
         'id': user_id, 
         'time_session': Config.TIME_SESSION,
@@ -56,6 +59,116 @@ async def cmd_start(message: types.Message, state: FSMContext):
         'args': (message, tmpd)
     })  
 
+
+@dp.message_handler(state=Order.auth)
+async def enter_pswd(message: types.Message, state: FSMContext):
+    passw = message.text
+    await message.delete()
+    await message.answer(f"{'*' * len(passw)}")
+    hash_passw = encode_password(passw)
+    await state.update_data(token=hash_passw)
+    await state.reset_state(with_data = False)
+    await message.answer('Хорошо.\nВведи команду еще раз.')
+     
+
+@dp.message_handler(commands=['stopSpam'], state='*')
+async def safe_spam_stop(message: types.Message, state: FSMContext):
+    await message.answer('Хватит спамить.')
+    await spamer.stopspam()  
+
+
+@dp.message_handler(commands=['info'], state='*')
+async def safe_info(message: types.Message, state: FSMContext):
+    await message.answer(f"""<b>Служебные команды:</b>\n
+    <i>/startSpam</i>   --  Начать маркетинг
+    <i>/stopSpam</i>    --   Закончить маркетинг
+    <i>/periodSpam</i>  --  Значение интервала заданного для процедуры маркетинга
+    <i>/clearSpam</i>   --  Удалить все маркетинги из бд
+    <i>/allSpam</i>     --  Показать весь маркетинг
+    
+    """)
+    
+
+
+@dp.message_handler(commands=['startSpam'], state='*')
+async def safe_spam_start(message: types.Message, state: FSMContext):
+    await message.answer('Погнали спамить....')
+    await message.answer('Введи число (секундов) интервала между спамов:')
+    await Order.duration_spam.set()
+
+
+@dp.message_handler(commands=['clearSpam'], state='*')
+async def safe_spam_clear(message: types.Message, state: FSMContext):
+    await message.answer('Очистить все спам-сообщения.')
+    await spamer.del_all_spam()
+    await message.answer('Очищено')
+    return await spamer.stopspam()
+
+
+@dp.message_handler(commands=['allSpam'], state='*')
+async def safe_spam_all_get(message: types.Message, state: FSMContext):
+    await message.answer('Весь спам:')
+    all_spam = await spamer.get_all_spam()
+    for row in all_spam:
+        id, txt, dur = row[1:]
+        await message.answer(f'{id}: {txt}\n-------------------------\nпериод: {dur} сек')
+     
+     
+    
+    
+
+@dp.message_handler(state=Order.duration_spam)
+async def safe_spam_input_id(message: types.Message, state: FSMContext):
+    input = message.text
+    spamer.set_duration_spam(input)
+    dur = spamer.get_duration()
+    await Order.victim.set()
+    await message.answer(f'Задано: {dur} сек')
+    
+    return await message.answer('Введи айди группы в которую надо спамить.\nЧтобы продолжить без ввода или закончить ввод id набери <b>noid</b>')
+
+
+@dp.message_handler(state=Order.victim)
+async def safe_add_victim(message: types.Message, state: FSMContext):
+    # [1941650155, 6627246261]
+    input = message.text
+    if input.strip() == STOP_INPUT:
+        await state.reset_state(with_data = False)
+        await spamer.add_victim()
+        await spamer.init()
+        return await message.answer('Закончили ввод id.')
+    try:
+        input = int(message.text)
+    except Exception:
+        await message.answer('Введено не число')
+    else:
+        await state.update_data(spamid=input)
+        await Order.victim_text.set()
+        
+        return await message.answer('Введи текст спама:')
+    
+    
+@dp.message_handler(state=Order.victim_text)
+async def safe_add_victim_text(message: types.Message, state: FSMContext):
+    input = message.text
+    if input == STOP_INPUT:
+        await state.reset_state(with_data = False)
+        await spamer.add_victim()
+        await spamer.init()
+        return await message.answer('Закончили ввод text.')
+    else:
+        _id = await state.get_data()
+        id = _id.get('spamid', "")
+        await spamer.add_victim_id_text([id, input])
+        await Order.victim.set()
+        return await message.answer('Введи айди группы в которую надо спамить.\nЧтобы закончить ввод набери <b>noid</b>')
+    
+        
+@dp.message_handler(commands=['periodSpam'], state='*')
+async def safe_spam_period(message: types.Message, state: FSMContext):
+    dur = spamer.get_duration()
+    await message.answer(f'Интервал спама: {dur} секунд')
+    
 
 # Здесь бот завершает процесс заказа, пользователь нажал завершить
 @dp.callback_query_handler(lambda m: m.data and m.data == 'exit_order', state=Order.all_states_names)
